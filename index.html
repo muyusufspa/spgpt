@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF--8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>SPA GPT Invoice Processor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- pdf.js for PDF text extraction -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+      // The worker is needed for pdf.js to run in a separate thread.
+      if (typeof pdfjsLib !== 'undefined') {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+      }
+    </script>
+    <!-- mammoth.js for DOCX text extraction -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <!-- xlsx.js (SheetJS) for Excel text extraction -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- Chart.js for Dashboard visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- jsPDF for PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    <!-- sql.js for SQLite database -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+    "react/": "https://aistudiocdn.com/react@^19.1.1/",
+    "react": "https://aistudiocdn.com/react@^19.1.1"
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-primary: #f0f9ff;
+    --bg-gradient-start: #e0f2fe;
+    --bg-gradient-end: #f0f9ff;
+    --bg-app-gradient-start: #f0f9ff;
+    --bg-app-gradient-end: #ffffff;
+    --text-primary: #0f172a;
+    --text-secondary: #334155;
+    --text-tertiary: #475569;
+    --text-muted: #94a3b8;
+    --text-inverted: #ffffff;
+    --glass-bg: rgba(255, 255, 255, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.3);
+    --header-bg: rgba(255, 255, 255, 0.7);
+    --header-border: rgba(255, 255, 255, 0.3);
+    --card-bg: rgba(255, 255, 255, 0.5);
+    --card-border: rgba(203, 213, 225, 0.8);
+    --input-bg: #f1f5f9;
+    --input-border: #cbd5e1;
+    --input-placeholder: #64748b;
+    --brand-primary: #0ea5e9;
+    --brand-secondary: #6366f1;
+    --brand-gradient-start: #38bdf8;
+    --brand-gradient-end: #3b82f6;
+    --prose-code-bg: #e2e8f0;
+    --prose-code-text: #1e293b;
+    --prose-pre-bg: #f1f5f9;
+  }
+
+  body.theme-midnight {
+    --bg-primary: #0b1120;
+    --bg-gradient-start: #0b1120;
+    --bg-gradient-end: #17253d;
+    --bg-app-gradient-start: #0b1120;
+    --bg-app-gradient-end: #17253d;
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-tertiary: #94a3b8;
+    --text-muted: #475569;
+    --text-inverted: #0f172a;
+    --glass-bg: rgba(30, 41, 59, 0.6);
+    --glass-border: rgba(71, 85, 105, 0.3);
+    --header-bg: rgba(30, 41, 59, 0.7);
+    --header-border: rgba(71, 85, 105, 0.3);
+    --card-bg: rgba(30, 41, 59, 0.5);
+    --card-border: rgba(71, 85, 105, 0.8);
+    --input-bg: #1e293b;
+    --input-border: #475569;
+    --input-placeholder: #94a3b8;
+    --brand-primary: #38bdf8;
+    --brand-secondary: #818cf8;
+    --brand-gradient-start: #38bdf8;
+    --brand-gradient-end: #60a5fa;
+    --prose-code-bg: #334155;
+    --prose-code-text: #e2e8f0;
+    --prose-pre-bg: #1e293b;
+  }
+  
+  html, body, #root {
+    height: 100dvh;
+    overflow: hidden;
+  }
+  @keyframes slide-in-left {
+    from { opacity: 0; transform: translateX(-20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes slide-in-right {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes float {
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-20px); }
+    100% { transform: translateY(0px); }
+  }
+  .animate-slide-in-left {
+    animation: slide-in-left 0.4s ease-out forwards;
+  }
+  .animate-slide-in-right {
+    animation: slide-in-right 0.4s ease-out forwards;
+  }
+  .animate-fade-in {
+    animation: fade-in 0.5s ease-out forwards;
+  }
+  /* Styles for AI responses with Markdown */
+  .ai-prose {
+    color: var(--text-secondary);
+    font-size: 1rem;
+    line-height: 1.75;
+  }
+  .ai-prose p, .ai-prose ul, .ai-prose ol, .ai-prose blockquote {
+      margin: 1em 0;
+  }
+  .ai-prose h1, .ai-prose h2, .ai-prose h3, .ai-prose h4 {
+      color: var(--text-primary);
+      font-weight: 600;
+      margin-top: 1.5em;
+      margin-bottom: 0.5em;
+      line-height: 1.3;
+  }
+  .ai-prose h1 { font-size: 1.875rem; }
+  .ai-prose h2 { font-size: 1.5rem; }
+  .ai-prose h3 { font-size: 1.25rem; }
+  .ai-prose h4 { font-size: 1.125rem; }
+
+  .ai-prose strong {
+      color: var(--text-primary);
+      font-weight: 600;
+  }
+  .ai-prose a {
+      color: var(--brand-primary);
+      text-decoration: underline;
+  }
+  .ai-prose ul, .ai-prose ol {
+      padding-left: 1.75rem;
+  }
+  .ai-prose ul { list-style-type: disc; }
+  .ai-prose ol { list-style-type: decimal; }
+  .ai-prose li { margin: 0.5em 0; }
+
+  .ai-prose blockquote {
+      padding-left: 1em;
+      border-left: 0.25em solid var(--text-muted);
+      color: var(--text-tertiary);
+      font-style: italic;
+  }
+  .ai-prose hr {
+      border-color: var(--input-border);
+      margin: 2em 0;
+  }
+  
+  .ai-prose code {
+      background-color: var(--prose-code-bg);
+      color: var(--prose-code-text);
+      padding: 0.2em 0.4em;
+      margin: 0;
+      font-size: 85%;
+      border-radius: 6px;
+  }
+  .ai-prose pre {
+      background-color: var(--prose-pre-bg) !important;
+      color: var(--prose-code-text);
+      padding: 1rem;
+      border-radius: 0.5rem;
+      overflow-x: auto;
+      font-size: 0.9em;
+  }
+  .ai-prose pre code {
+      background-color: transparent !important;
+      color: inherit;
+      padding: 0;
+      margin: 0;
+      font-size: inherit;
+  }
+
+  /* --- Aviation Theme --- */
+  body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg-primary);
+      transition: background-color 0.5s ease-in-out, color 0.5s ease-in-out;
+  }
+   body.login-page-background {
+      background-color: var(--bg-primary);
+      background-image: linear-gradient(to bottom, var(--bg-gradient-start), var(--bg-gradient-end));
+  }
+
+  /* Main background for the logged-in app */
+  body.app-background {
+      background-color: var(--bg-primary);
+      background-image: linear-gradient(170deg, var(--bg-app-gradient-start) 0%, var(--bg-app-gradient-end) 100%);
+      color: var(--text-primary);
+      position: relative;
+      overflow-x: hidden;
+  }
+   /* Cloud Shapes */
+  body.app-background::before, body.app-background::after {
+      content: '';
+      position: absolute;
+      border-radius: 50%;
+      background: rgba(125, 211, 252, 0.2);
+      filter: blur(100px);
+      z-index: -1;
+      pointer-events: none;
+  }
+  body.app-background::before {
+      width: 400px;
+      height: 400px;
+      top: -150px;
+      left: -150px;
+      animation: float 15s infinite ease-in-out;
+  }
+  body.app-background::after {
+      width: 500px;
+      height: 500px;
+      bottom: -200px;
+      right: -200px;
+      animation: float 20s infinite ease-in-out reverse;
+  }
+  /* Glassmorphism Card Style */
+  .glass-card {
+      background: var(--glass-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--glass-border);
+      box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.08);
+      transition: background-color 0.3s, border-color 0.3s;
+  }
+
+  /* Minimal Scrollbar Styling */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(100, 116, 139, 0.3);
+    border-radius: 20px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(100, 116, 139, 0.5);
+  }
+
+  /* Theme-specific overrides for Tailwind classes */
+  body.theme-midnight .text-slate-800 { color: var(--text-primary); }
+  body.theme-midnight .text-slate-700 { color: var(--text-secondary); }
+  body.theme-midnight .text-slate-600 { color: var(--text-tertiary); }
+  body.theme-midnight .text-slate-500 { color: var(--text-muted); }
+  body.theme-midnight .text-sky-800 { color: var(--brand-primary); }
+  body.theme-midnight .text-sky-700 { color: var(--brand-primary); }
+  body.theme-midnight .text-blue-700 { color: var(--brand-secondary); }
+  body.theme-midnight .text-blue-900 { color: var(--text-primary); }
+  body.theme-midnight .bg-white\/90 { background-color: rgba(51, 65, 85, 0.9); }
+  body.theme-midnight .bg-white\/70 { background-color: var(--header-bg); }
+  body.theme-midnight .bg-white\/50 { background-color: var(--card-bg); }
+  body.theme-midnight .bg-white\/30 { background-color: rgba(51, 65, 85, 0.3); }
+  body.theme-midnight .bg-white\/20 { background-color: rgba(51, 65, 85, 0.2); }
+  body.theme-midnight .bg-black\/5 { background-color: rgba(255, 255, 255, 0.05); }
+  body.theme-midnight .border-slate-300 { border-color: var(--input-border); }
+  body.theme-midnight .border-slate-300\/70 { border-color: rgba(71, 85, 105, 0.7); }
+  body.theme-midnight .border-slate-200 { border-color: var(--input-border); }
+  body.theme-midnight .border-slate-200\/80 { border-color: rgba(71, 85, 105, 0.8); }
+  body.theme-midnight .border-white\/30 { border-color: var(--glass-border); }
+  body.theme-midnight .placeholder-slate-500::placeholder { color: var(--input-placeholder); }
+  body.theme-midnight .hover\:bg-white\/50:hover { background-color: rgba(255, 255, 255, 0.1); }
+  body.theme-midnight .hover\:text-slate-900:hover { color: var(--text-primary); }
+  body.theme-midnight .from-sky-400 { --tw-gradient-from: var(--brand-gradient-start) var(--tw-gradient-from-position); --tw-gradient-to: transparent var(--tw-gradient-to-position); }
+  body.theme-midnight .to-blue-500 { --tw-gradient-to: var(--brand-gradient-end) var(--tw-gradient-to-position); }
+
+</style>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
