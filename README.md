@@ -1,4 +1,4 @@
-# SPA GPT - Saudi Private Aviation Intelligence Platform
+## ⚙️ Configuration# SPA GPT - Saudi Private Aviation Intelligence Platform
 
 A comprehensive React-based web application designed for Saudi Private Aviation, featuring AI-powered invoice processing, document Q&A, and administrative tools.
 
@@ -53,7 +53,6 @@ A comprehensive React-based web application designed for Saudi Private Aviation,
 3. **Set up environment variables**
    Create a `.env.local` file in the root directory:
    ```env
-   REACT_APP_GEMINI_API_KEY=your_gemini_api_key_here
    REACT_APP_API_ENDPOINT=https://stagefin.spaero.sa/get_bill/spa_gpt_webhook
    REACT_APP_API_TOKEN=your_api_token_here
    ```
@@ -211,11 +210,8 @@ Ensure all environment variables are properly configured for production deployme
 
 ### Hosting
 The application can be deployed on:
-- Vercel
-- Netlify
-- AWS CloudFront + S3
-- Azure Static Web Apps
+- AWS EC2
 
 ---
 
-**Made with ❤️ for Saudi Private Aviation - Aligned with Vision 2030**
+**Made with for Saudi Private Aviation - Aligned with Vision 2030**
