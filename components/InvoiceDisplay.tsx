@@ -64,7 +64,7 @@ export const InvoiceDisplay: React.FC<InvoiceDisplayProps> = ({ data }) => {
       </div>
 
       {/* Routing & Approvals Section */}
-      {(data.departure_iata || data.arrival_iata || data.approver_level1 || data.approver_level2 || data.approver_level3) &&
+      {(data.departure_iata || data.arrival_iata || data.approver_level1 !== null || data.approver_level2 !== null || data.approver_level3 !== null) &&
         <div className="py-4 border-b border-slate-300/70">
           <h4 className="text-base font-semibold text-slate-900 mb-2">Routing & Approvals</h4>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">

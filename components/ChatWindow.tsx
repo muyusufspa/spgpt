@@ -1,4 +1,5 @@
 
+
 import React, { useEffect, useRef, useState } from 'react';
 import type { AppStatus, ChatMessage, InvoiceData } from '../types';
 import { ChatBubble } from './ChatBubble';
@@ -6,21 +7,23 @@ import { ChatInput } from './ChatInput';
 import { InvoiceDisplay } from './InvoiceDisplay';
 import { ConfirmationButtons } from './ConfirmationButtons';
 import { AirportSelector } from './AirportSelector';
+import { ApproverSelector } from './ApproverSelector';
 
 interface ChatWindowProps {
   messages: ChatMessage[];
   onSendMessage: (message: string) => void;
   onConfirmRsaf: (confirmed: boolean) => void;
   onSaveRoutingDetails: (details: any) => void;
+  onSaveApprovers: (details: any) => void;
   status: AppStatus;
   invoiceData: InvoiceData | null;
   placeholder: string;
-  conversationStage: 'idle' | 'awaiting_vendor_name' | 'awaiting_rsaf_confirmation' | 'awaiting_fsr_id' | 'awaiting_routing_details';
+  conversationStage: 'idle' | 'awaiting_vendor_name' | 'awaiting_rsaf_confirmation' | 'awaiting_fsr_id' | 'awaiting_routing_details' | 'awaiting_approver_selection';
 }
 
 const INVOICE_COMMANDS = ['extract invoice details', 'post', 'ai agentic'];
 
-export const ChatWindow: React.FC<ChatWindowProps> = ({ messages, onSendMessage, onConfirmRsaf, onSaveRoutingDetails, status, invoiceData, placeholder, conversationStage }) => {
+export const ChatWindow: React.FC<ChatWindowProps> = ({ messages, onSendMessage, onConfirmRsaf, onSaveRoutingDetails, onSaveApprovers, status, invoiceData, placeholder, conversationStage }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
@@ -55,7 +58,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ messages, onSendMessage,
         case 'awaiting_rsaf_confirmation':
             return <ConfirmationButtons onConfirm={onConfirmRsaf} disabled={status === 'processing'} />;
         case 'awaiting_routing_details':
-            return <div className="text-center text-sm text-slate-500 p-2 h-[54px] flex items-center justify-center">Please complete the airport selection above.</div>;
+        case 'awaiting_approver_selection':
+            return <div className="text-center text-sm text-slate-500 p-2 h-[54px] flex items-center justify-center">Please complete the selection above.</div>;
         default:
             return <ChatInput onSendMessage={onSendMessage} disabled={status === 'processing'} placeholder={placeholder} commands={INVOICE_COMMANDS} />;
     }
@@ -72,6 +76,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ messages, onSendMessage,
         {messages.map((msg, index) => {
           const shouldDisplayInvoice = !!(invoiceData && msg.showInvoice);
           const shouldDisplayAirportSelector = !!msg.showAirportSelector;
+          const shouldDisplayApproverSelector = !!msg.showApproverSelector;
           return (
              <React.Fragment key={index}>
               <ChatBubble message={msg} />
@@ -83,6 +88,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ messages, onSendMessage,
               {shouldDisplayAirportSelector && (
                 <div className="animate-fade-in">
                     <AirportSelector onSave={onSaveRoutingDetails} />
+                </div>
+              )}
+              {shouldDisplayApproverSelector && (
+                <div className="animate-fade-in">
+                    <ApproverSelector onSave={onSaveApprovers} />
                 </div>
               )}
             </React.Fragment>

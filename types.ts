@@ -20,6 +20,7 @@ export interface ChatMessage {
   showInvoice?: boolean;
   showRequestPayload?: any;
   showAirportSelector?: boolean;
+  showApproverSelector?: boolean;
 }
 
 export interface ProductLine {
@@ -52,6 +53,7 @@ export interface InvoiceData {
   currency: string;
   bill_attachments: BillAttachment[];
   payment_terms: string;
+  product_lines: ProductLine[];
   departure_iata: string | null;
   departure_icao: string | null;
   arrival_iata: string | null;
@@ -59,7 +61,6 @@ export interface InvoiceData {
   approver_level1: number | null;
   approver_level2: number | null;
   approver_level3: number | null;
-  product_lines: ProductLine[];
 }
 
 export interface InvoiceHistoryEntry {
@@ -111,4 +112,10 @@ export interface MockDbUser {
   last_login_at: string | null;
   is_active: 1 | 0;
   is_admin: 1 | 0;
+}
+
+export interface Approver {
+  id: number;
+  user_id: number;
+  user_name: string;
 }
