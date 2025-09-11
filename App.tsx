@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect, useMemo } from 'react';
 
 import { Header } from './components/Header';
@@ -578,7 +580,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
 // --- End of co-located components ---
 
 type AppMode = 'dashboard' | 'invoice' | 'qa' | 'document_qa' | 'admin';
-type ConversationStage = 'idle' | 'awaiting_vendor_name' | 'awaiting_rsaf_confirmation' | 'awaiting_fsr_id' | 'awaiting_routing_details';
+type ConversationStage = 'idle' | 'awaiting_vendor_name' | 'awaiting_rsaf_confirmation' | 'awaiting_fsr_id' | 'awaiting_routing_details' | 'awaiting_approver_selection';
 type AuthStatus = 'pending' | 'authenticated' | 'unauthenticated';
 
 const fileToBase64 = (file: File): Promise<string> => {
@@ -993,13 +995,9 @@ const handleModeChange = (newMode: AppMode) => {
             addMessage(`Vendor name set to **${message.trim()}**.`, 'ai', 'invoice');
             addMessage("Here is the updated data. Review it.", 'ai', 'invoice', { showInvoice: true });
 
-            if (updatedData.rsaf_bill === null) {
-                setConversationStage('awaiting_rsaf_confirmation');
-                addMessage("Is this an RSAF bill?", 'ai', 'invoice');
-            } else {
-                addMessage("You can now add routing details for this invoice.", 'ai', 'invoice', { showAirportSelector: true });
-                setConversationStage('awaiting_routing_details');
-            }
+            // Always ask the RSAF question next.
+            setConversationStage('awaiting_rsaf_confirmation');
+            addMessage("Is this an RSAF bill?", 'ai', 'invoice');
         }
         return;
     }
@@ -1011,159 +1009,214 @@ const handleModeChange = (newMode: AppMode) => {
         setConversationStage('awaiting_routing_details');
       } return; 
     }
+    
     const command = message.toLowerCase().trim();
     if (command.includes('extract')) {
       if (!uploadedFile) { addMessage("Please upload an invoice file first.", 'ai', 'invoice'); return; }
-      addMessage(`Extracting details from **${uploadedFile.name}**...`, 'ai', 'invoice', { isLoading: true });
+      addMessage('AI is analyzing and extracting the invoice...', 'ai', 'invoice');
       try {
-        const data = await extractInvoiceDetails(uploadedFile); setInvoiceData(data);
-        addMessage("Extraction complete! Here is the data I found. Review it.", 'ai', 'invoice', { showInvoice: true });
+        const data = await extractInvoiceDetails(uploadedFile);
+        // Ensure approvers are cleared to enforce manual selection
+        const cleanedData = { ...data, approver_level1: null, approver_level2: null, approver_level3: null };
+        setInvoiceData(cleanedData);
+        addMessage("I've extracted the following details. Please review them.", 'ai', 'invoice', { showInvoice: true });
 
-        if (data.vendor_name === null) {
-            addMessage("I couldn't identify the vendor. Please provide the vendor name.", 'ai', 'invoice');
-            setConversationStage('awaiting_vendor_name');
-        } else if (data.rsaf_bill === null) {
-            addMessage("Is this an RSAF bill?", 'ai', 'invoice');
-            setConversationStage('awaiting_rsaf_confirmation');
+        if (!cleanedData.vendor_name) {
+          addMessage("I couldn't find a vendor name. Please enter it below.", 'ai', 'invoice');
+          setConversationStage('awaiting_vendor_name');
         } else {
-            addMessage("You can now add routing details for this invoice. Please select a service type to begin.", 'ai', 'invoice', { showAirportSelector: true });
-            setConversationStage('awaiting_routing_details');
+          // Always ask the RSAF question if vendor name is present.
+          addMessage("Is this an RSAF bill?", 'ai', 'invoice');
+          setConversationStage('awaiting_rsaf_confirmation');
         }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred during extraction.";
+        addMessage(`**Error during extraction:** ${errorMessage}`, 'ai', 'invoice');
+      }
+    } else if (command.includes('post')) {
+      if (!invoiceData) { addMessage("Please extract invoice details first.", 'ai', 'invoice'); return; }
+      if (conversationStage !== 'idle') { addMessage("Please complete the current conversation step before posting.", 'ai', 'invoice'); return; }
+      await executePost(invoiceData);
+    } else if (command.includes('ai agentic')) {
+      addMessage("Opening the AI Agentic Portal in a new tab.", 'ai', 'invoice', { isAgenticLink: true });
+    } else {
+      addMessage("Unknown command. Available commands: 'extract invoice details', 'post'.", 'ai', 'invoice');
+    }
+  };
 
-      } catch (e) { throw e; }
-    } else if (command === 'post') {
-       if (!invoiceData) { addMessage("No invoice data to post. Extract details first.", 'ai', 'invoice'); return; }
-       const isComplete = invoiceData.vendor_name;
-       if (!isComplete) { addMessage("Invoice data is incomplete. Please ensure all required fields are filled before posting.", 'ai', 'invoice'); return; }
-       await executePost(invoiceData);
-    } else if (command === 'ai agentic') { addMessage("Opening AI Agentic Portal in a new tab.", 'ai', 'invoice', { isAgenticLink: true }); } 
-    else { addMessage("I don't know that command. Try 'extract details', 'post', or 'ai agentic'.", 'ai', 'invoice'); }
+  const handleConfirmRsaf = (confirmed: boolean) => {
+    if (!invoiceData) return;
+    const updatedData = { ...invoiceData, rsaf_bill: confirmed };
+    setInvoiceData(updatedData);
+    addMessage(`You selected: **${confirmed ? 'Yes' : 'No'}**`, 'user', 'invoice');
+
+    if (confirmed) {
+      addMessage("Please enter the FSR ID.", 'ai', 'invoice');
+      setConversationStage('awaiting_fsr_id');
+    } else {
+      // For non-RSAF bills, we still need a service type identifier to satisfy the API.
+      // Show the service details selector.
+      addMessage("Please specify the service details for this invoice.", 'ai', 'invoice', { showAirportSelector: true });
+      setConversationStage('awaiting_routing_details');
+    }
+  };
+
+  const handleSaveRoutingDetails = (details: { service_type: string; departure_iata: string | null; departure_icao: string | null; arrival_iata: string | null; arrival_icao: string | null; }) => {
+    if (!invoiceData) return;
+    
+    // Base updates
+    let updatedData: InvoiceData = {
+        ...invoiceData,
+        service_type: details.service_type,
+        departure_iata: details.departure_iata,
+        departure_icao: details.departure_icao,
+        arrival_iata: details.arrival_iata,
+        arrival_icao: details.arrival_icao,
+        // Reset all service-specific IDs
+        ht_id: null,
+        ir_id: null,
+        cr_id: null,
+        gs_id: null,
+    };
+
+    // Set the specific ID based on service type
+    switch (details.service_type) {
+        case 'hotel':
+            updatedData.ht_id = 21; // Set fixed ht_id for hotel
+            break;
+        case 'insurance':
+            updatedData.ir_id = true;
+            break;
+        case 'catering':
+            updatedData.cr_id = true;
+            break;
+        case 'ground_service':
+            updatedData.gs_id = true;
+            break;
+        default:
+            break;
+    }
+
+    setInvoiceData(updatedData);
+    setInvoiceMessages(prev => prev.filter(m => !m.showAirportSelector));
+    addMessage('Routing details saved. Please select the approvers.', 'ai', 'invoice', { showApproverSelector: true });
+    setConversationStage('awaiting_approver_selection');
+  };
+
+  const handleSaveApprovers = (details: { approver_level1: number | null; approver_level2: number | null; approver_level3: number | null; }) => {
+      if (!invoiceData) return;
+      setInvoiceData({ ...invoiceData, ...details });
+      setInvoiceMessages(prev => prev.filter(m => !m.showApproverSelector));
+      addMessage('Approvers have been selected. You can now post the invoice.', 'ai', 'invoice');
+      setConversationStage('idle');
   };
   
-  const handleConfirmRsaf = (confirmed: boolean) => {
-      if (invoiceData) {
-          const updatedData = { ...invoiceData, rsaf_bill: confirmed }; setInvoiceData(updatedData);
-          setInvoiceMessages(prev => [...prev, {role: 'user', content: confirmed ? 'Yes' : 'No', timestamp: Date.now()}]);
-          if (confirmed) { 
-              addMessage("Got it. Please provide the FSR ID.", 'ai', 'invoice'); 
-              setConversationStage('awaiting_fsr_id'); 
-          } else { 
-              addMessage("Understood. Marked as non-RSAF. You can now add routing details.", 'ai', 'invoice', { showAirportSelector: true });
-              setConversationStage('awaiting_routing_details'); 
-          }
-      }
-  };
-
-  const handleSaveRoutingDetails = (details: {
-    service_type: string;
-    departure_iata: string | null;
-    departure_icao: string | null;
-    arrival_iata: string | null;
-    arrival_icao: string | null;
-    selected_airports_count: number;
-  }) => {
-    if (invoiceData) {
-        const updatedData: InvoiceData = {
-            ...invoiceData,
-            service_type: details.service_type,
-            departure_iata: details.departure_iata,
-            departure_icao: details.departure_icao,
-            arrival_iata: details.arrival_iata,
-            arrival_icao: details.arrival_icao,
-        };
-        setInvoiceData(updatedData);
-    }
-    
-    // Using a more readable format for the user message
-    const userMessageContent = `Routing details confirmed: Service Type: ${details.service_type}, Departure: ${details.departure_iata || 'N/A'}, Arrival: ${details.arrival_iata || 'N/A'}`;
-    
-    // Remove the selector from the previous message and add the new messages
-    setInvoiceMessages(prev => {
-        const newMessages = prev.map(m => ({ ...m, showAirportSelector: false }));
-        // FIX: Add `showAirportSelector: false` to new messages. When mapping over `prev` to create `newMessages`,
-        // TypeScript infers a stricter type where `showAirportSelector` is a required boolean. These additions
-        // ensure the new message objects conform to that inferred type.
-        newMessages.push({ role: 'user', content: userMessageContent, timestamp: Date.now(), showAirportSelector: false });
-        newMessages.push({ role: 'ai', content: "Routing details have been saved to the invoice. You can now use the 'post' command when ready.", timestamp: Date.now(), showAirportSelector: false });
-        return newMessages;
-    });
-
-    setConversationStage('idle');
-  };
-
   if (authStatus === 'pending') {
-    return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-100/50">
-        <img
-          src="/components/icons/saudia-private-aviation.png"
-          alt="Saudia Private Aviation Logo"
-          className="h-16 w-auto mb-4"
-        />
-        <div className="flex items-center space-x-2">
-            <div className="w-2 h-2 bg-sky-600 rounded-full animate-pulse [animation-delay:-0.3s]"></div>
-            <div className="w-2 h-2 bg-sky-600 rounded-full animate-pulse [animation-delay:-0.15s]"></div>
-            <div className="w-2 h-2 bg-sky-600 rounded-full animate-pulse"></div>
-            <span className="text-sm text-slate-600">Verifying session...</span>
-        </div>
-      </div>
-    );
+    return <div className="h-screen w-screen bg-slate-100 flex items-center justify-center"><div className="w-8 h-8 border-4 border-slate-300 border-t-sky-500 rounded-full animate-spin"></div></div>;
   }
-
-  if (authStatus === 'unauthenticated') {
+  
+  if (authStatus !== 'authenticated') {
     return <LoginPage onLogin={handleLogin} />;
   }
 
-  const renderContent = () => {
-    // Fallback guard in case mode is manipulated
-    if (mode === 'admin' && !userProfile.is_admin) {
-        return <Dashboard history={history} />;
-    }
-    
-    switch (mode) {
-      case 'dashboard': return <Dashboard history={history} />;
-      case 'invoice':
-        return (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 h-full">
-            <div className="lg:col-span-5 xl:col-span-4 animate-slide-in-left order-2 lg:order-1 flex flex-col min-h-0">
-              <ControlPanel uploadedFile={uploadedFile} onFileUpload={(file) => handleFileUpload(file, 'invoice')} status={status} onClearSession={handleClearSession} onViewHistory={() => setShowHistoryModal(true)} onSendCommand={handleSendCommand} invoiceData={invoiceData} />
-            </div>
-            <div className="lg:col-span-7 xl:col-span-8 flex flex-col min-h-0 animate-slide-in-right order-1 lg:order-2">
-              <ChatWindow messages={invoiceMessages} onSendMessage={handleSendMessage} onConfirmRsaf={handleConfirmRsaf} onSaveRoutingDetails={handleSaveRoutingDetails} status={status} invoiceData={invoiceData} placeholder={conversationStage === 'idle' ? 'Type a command...' : 'Please respond above.'} conversationStage={conversationStage} />
-            </div>
-          </div>
-        );
-      case 'qa': return <QAChatWindow messages={qaMessages} onSendMessage={handleSendMessage} status={status} />;
-      case 'document_qa': return <DocumentQAChatWindow messages={docQAMessages} onSendMessage={handleSendMessage} status={status} docQAFile={docQAFile} onDocFileUpload={(file) => handleFileUpload(file, 'doc_qa')} />;
-      case 'admin': 
-        return <AdminPanel
-                    allUsers={allUsers}
-                    activityLog={activityLog}
-                    currentUserEmail={userProfile.email}
-                    onCreateUser={handleCreateUser}
-                    onToggleUserStatus={handleToggleUserStatus}
-                    onToggleAdminStatus={handleToggleAdminStatus}
-                    onDeleteUser={handleDeleteUser}
-                    onResetPassword={handleResetPassword}
-                />;
-      default: return null;
-    }
-  };
-  
   return (
-    <div className="h-[100dvh] flex flex-col font-sans">
-      <Header mode={mode} onModeChange={handleModeChange} userProfile={userProfile} onLogout={handleLogout} onOpenProfile={() => setShowProfileModal(true)} />
-      <main className="flex-grow container mx-auto max-w-7xl p-4 lg:p-6 min-h-0">{renderContent()}</main>
-      {showHistoryModal && <HistoryModal history={history} onClose={() => setShowHistoryModal(false)} onClearHistory={() => { if(window.confirm("Are you sure? This cannot be undone.")) { setHistory([]); logActivity('Cleared all invoice history.'); setShowHistoryModal(false); } }} />}
-       <UserProfileModal
-        isOpen={showProfileModal}
-        onClose={() => setShowProfileModal(false)}
-        userProfile={userProfile}
-        onUpdateProfile={(p) => { setUserProfile(p); logActivity('Updated user profile.'); }}
-        userSettings={userSettings}
-        onUpdateSettings={(s) => { setUserSettings(s); logActivity(`Changed theme to ${s.theme}.`); }}
-        activityLog={activityLog}
-        allUsers={allUsers}
+    <div className="flex flex-col h-screen overflow-hidden">
+      <Header 
+        mode={mode} 
+        onModeChange={handleModeChange} 
+        userProfile={userProfile} 
+        onLogout={handleLogout}
+        onOpenProfile={() => setShowProfileModal(true)}
       />
+      {showProfileModal && (
+        <UserProfileModal 
+            isOpen={showProfileModal}
+            onClose={() => setShowProfileModal(false)}
+            userProfile={userProfile}
+            onUpdateProfile={(p) => setUserProfile(p)}
+            userSettings={userSettings}
+            onUpdateSettings={(s) => { 
+                setUserSettings(s);
+                if (s.theme !== userSettings.theme) {
+                    logActivity(`Changed theme to ${s.theme}.`);
+                }
+            }}
+            activityLog={activityLog}
+            allUsers={allUsers}
+        />
+      )}
+      <main className="flex-grow min-h-0">
+        {mode === 'invoice' && (
+          <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl h-full py-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+              <div className="lg:col-span-1 h-full min-h-0">
+                <ControlPanel
+                  uploadedFile={uploadedFile}
+                  onFileUpload={(file) => handleFileUpload(file, 'invoice')}
+                  status={status}
+                  onClearSession={handleClearSession}
+                  onViewHistory={() => setShowHistoryModal(true)}
+                  onSendCommand={handleSendCommand}
+                  invoiceData={invoiceData}
+                />
+              </div>
+              <div className="lg:col-span-2 h-full min-h-0">
+                <ChatWindow
+                  messages={invoiceMessages}
+                  onSendMessage={handleSendMessage}
+                  onConfirmRsaf={handleConfirmRsaf}
+                  onSaveRoutingDetails={handleSaveRoutingDetails}
+                  onSaveApprovers={handleSaveApprovers}
+                  status={status}
+                  invoiceData={invoiceData}
+                  placeholder={
+                    conversationStage === 'awaiting_vendor_name' ? 'Enter vendor name...' :
+                    conversationStage === 'awaiting_fsr_id' ? 'Enter FSR ID...' :
+                    'Type a command or message...'
+                  }
+                  conversationStage={conversationStage}
+                />
+              </div>
+            </div>
+            {showHistoryModal && <HistoryModal history={history} onClose={() => setShowHistoryModal(false)} onClearHistory={() => { setHistory([]); logActivity('Cleared all invoice history.'); }} />}
+          </div>
+        )}
+        {mode === 'dashboard' && (
+          <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl h-full py-6">
+              <Dashboard history={history} />
+          </div>
+        )}
+        {mode === 'qa' && (
+           <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-3xl h-full py-6">
+               <QAChatWindow messages={qaMessages} onSendMessage={handleSendMessage} status={status} />
+           </div>
+        )}
+        {mode === 'document_qa' && (
+             <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-3xl h-full py-6">
+                 <DocumentQAChatWindow 
+                    messages={docQAMessages} 
+                    onSendMessage={handleSendMessage} 
+                    status={status}
+                    docQAFile={docQAFile}
+                    onDocFileUpload={(file) => handleFileUpload(file, 'doc_qa')}
+                 />
+             </div>
+        )}
+        {mode === 'admin' && userProfile.is_admin && (
+          <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl h-full py-6">
+            <AdminPanel 
+                allUsers={allUsers}
+                activityLog={activityLog}
+                currentUserEmail={userProfile.email}
+                onCreateUser={handleCreateUser}
+                onToggleUserStatus={handleToggleUserStatus}
+                onToggleAdminStatus={handleToggleAdminStatus}
+                onDeleteUser={handleDeleteUser}
+                onResetPassword={handleResetPassword}
+            />
+          </div>
+        )}
+      </main>
     </div>
   );
 };
